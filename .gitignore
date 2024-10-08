@@ -1,0 +1,5 @@
+data/code_aligned
+data/partial_csv
+data/*.csv
+
+data_analysis/graphs
