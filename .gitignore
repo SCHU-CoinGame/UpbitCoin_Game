@@ -1,5 +1,7 @@
-data/code_aligned
-data/partial_csv
+data/from_s3/code_aligned
+data/from_s3/partial_csv
+data/from_s3/*.csv
 data/*.csv
+data/from_pyupbit/
 
 data_analysis/graphs
