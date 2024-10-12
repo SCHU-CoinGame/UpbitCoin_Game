@@ -4,4 +4,8 @@ data/from_s3/*.csv
 data/*.csv
 data/from_pyupbit/
 
+ai_hint/ensemble_*
+ai_hint/models
+ai_hint/lstm_dropout*
+
 data_analysis/graphs
