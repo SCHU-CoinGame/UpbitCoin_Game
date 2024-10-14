@@ -9,3 +9,5 @@ ai_hint/models
 ai_hint/lstm_dropout*
 
 data_analysis/graphs
+
+__pycache__
