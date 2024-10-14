@@ -4,17 +4,25 @@ import joblib
 import pandas as pd
 import numpy as np
 import time
-from threading import Thread
 import pyupbit
-import csv
 import datetime
+import requests
+import json
+import warnings
+
+import config
+
+warnings.filterwarnings('ignore')
 
 
 model_dir = 'ai_hint/models'
 data_dir = 'data/from_pyupbit'
 
-# coins = ['KRW-BTC', 'KRW-SXP', 'KRW-SUI', 'KRW-ARK', 'KRW-SHIB', 'KRW-UXLINK', 'KRW-XRP', 'KRW-SEI', 'KRW-HIFI']
-coins = ['KRW-SXP']
+coins = ['KRW-BTC', 'KRW-SXP', 'KRW-SUI', 'KRW-ARK', 'KRW-SHIB', 'KRW-UXLINK', 'KRW-XRP', 'KRW-SEI', 'KRW-HIFI']
+coin_dict = {coin: i for i, coin in enumerate(coins)}
+
+cfg = config.Config()
+
 last_times = {}  # csv 파일 마지막에 빈 줄 하나 있어야 함
 
 models = []
@@ -22,6 +30,8 @@ scalers = []
 data_paths = {}
 model_paths = {}
 scaler_paths = {}
+
+response = []
 
 
 def get_last_date(coin):
@@ -32,12 +42,11 @@ def get_last_date(coin):
     return last_date
 
 
-def get_last_close(coin, count=10):
+def get_last_row(coin, count=10):
     filepath = os.path.join(data_dir, f'{coin}.csv')
     total_rows = sum(1 for _ in open(filepath))
     last_row = pd.read_csv(filepath, skiprows=range(1, total_rows-count))
-    last_close = last_row['close'].values
-    return last_close
+    return last_row
 
 for coin in coins:
     model_paths[coin] = os.path.join(model_dir, f'lstm_{coin}.h5')
@@ -50,10 +59,18 @@ for coin in coins:
     
     last_times[coin] = get_last_date(coin)
     
+    response.append({'code':coin, 'rank':-1, 'prediction_timestamp':'', 'percentage':0.0,
+                     'most_volatile':False, 'least_volatile':False, 'largest_drop':False, 'largest_rise':False,
+                     'largest_spike':False, 'fastest_growth':False, 'fastest_decline':False})
+    
     
 # TODO: get data from DB
 def get_data(coin, count=1, to=str(datetime.datetime.now()).split('.')[0][:-2]+'00'):
     return pyupbit.get_ohlcv(ticker=coin, interval='minute1', count=count, to=to)
+
+
+def get_percentage(pred, data):
+    return (pred - data) / data * 100
 
 
 def before_train():
@@ -92,102 +109,107 @@ def before_train():
                 current_time = str(now).split('.')[0][:-2] + '00'
             print(f'{coin} loop', datetime.datetime.now() - start_time)
             start_time = datetime.datetime.now()
-
-
-analysis = {
-    'fluctuative': 'KRW-SXP',
-    'up': 'KRW-SUI',
-    'down': 'KRW-ARK',
-    'flat': 'KRW-SHIB'
-}
-
-
-def analyze():
-    analysis = {'std':std, ''}
-    return analysis
-    
-    
-# 1 min interval (train & analyze)
-def train():
-    while True:
-        coin_an = {}
-        for i, coin in enumerate(coins):
-            with open(os.path.join(data_dir, f'{coin}.csv'), 'a') as f:
-                wr = csv.writer(f)
-                this_time = get_data(coin)
-                wr.writerow(this_time)
-            ten_closes = get_last_close(coin, 10)
             
-            X = np.array(ten_closes)
+            
+def on_message(msg):
+    url = cfg.url
+    headers = {'Content-Type': 'application/json'}
+    
+    try:
+        r = requests.post(url, data=msg, headers=headers)
+        print(f'Status Code: {r.status_code}, Response: {r.text}')
+    except requests.exceptions.RequestException as e:
+        print(f'An error occurred: {e}')
+    
+    return response
+
+
+volatility = {}
+price_change ={}
+volume_change = {}
+avg_change_rate = {}
+
+
+# 1 min interval (train & analyze)
+def train_and_predict():
+    while True:
+        
+        percentages = {}
+    
+        for i, coin in enumerate(coins):
+            this_time = get_data(coin)
+            # this_time.to_csv(data_paths[coin], mode='a', header=not os.path.exists(data_paths[coin]), index=False)
+            ten_rows = get_last_row(coin, 10)
+            ten_closes = ten_rows['close'].values
+            
+            # TODO: train
+            
+            X = np.array(ten_closes).reshape(-1, 1)
             scalers[i].partial_fit(X)
-            joblib.dump(scalers[i], scaler_paths[coin])
-            scaled_data = scalers[i].transform(X.reshape(-1, 1))
+            # joblib.dump(scalers[i], scaler_paths[coin])
+            scaled_data = scalers[i].transform(X)
             
             X = [scaled_data[-2]]
             y = [scaled_data[-1]]
             X, y = np.array(X), np.array(y)
             X = X.reshape(X.shape[0], X.shape[1], 1)
             
-            X = X.reshape(1, 1, 1)
             models[i].fit(X, y, epochs=1, batch_size=1)
-            models[i].save(model_paths[coin])
+            # models[i].save(model_paths[coin])
             
             # TODO: analyze
-            coin_an[coin] = analyze()
         
-        most_fluc = max(coin_an, key=lambda x: coin_an[x]['fluctuative'])
-        up = max(coin_an, key=lambda x: coin_an[x]['up'])
-        down = min(coin_an, key=lambda x: coin_an[x]['up'])
-        flat = min(coin_an, key=lambda x: coin_an[x]['std'])
+            volatility[coin] = ten_rows['close'].max() - ten_rows['close'].min()
+            price_change[coin] = (ten_rows['close'].iloc[-1] - ten_rows['close'].iloc[5]) / ten_rows['close'].iloc[5] * 100
+            volume_change[coin] = (ten_rows['volume'].iloc[-1] - ten_rows['volume'].iloc[5]) / ten_rows['volume'].iloc[5] * 100
+            avg_change_rate[coin] = ten_rows['close'].diff().dropna().mean()
+            
+            # TODO: predict
+            
+            curr_price = ten_closes[-1]
+            X = scalers[i].transform(np.array([curr_price]).reshape(-1, 1))
+            X = X.reshape(X.shape[0], X.shape[1], 1)
+            
+            pred = models[i].predict(X)
+            pred = scalers[i].inverse_transform(pred)
+            
+            percentages[coin] = get_percentage(pred[0][0], curr_price)
+            
+        sorted_percentages = sorted(percentages.items(), key=lambda x: x[1], reverse=True)
         
-        analysis['fluctuative'] = most_fluc
-        analysis['up'] = up
-        analysis['down'] = down
-        analysis['flat'] = flat
+        pred_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        for i, (coin, percentage) in enumerate(sorted_percentages):
+            response[i]['percentage'] = percentage
+            response[i]['rank'] = i + 1
+            response[i]['prediction_timestamp'] = pred_time
+            
+        response[coin_dict[max(volatility, key=volatility.get)]]['most_volatile'] = True
+        response[coin_dict[min(volatility, key=volatility.get)]]['least_volatile'] = True
+        response[coin_dict[min(price_change, key=price_change.get)]]['largest_drop'] = True
+        response[coin_dict[max(price_change, key=price_change.get)]]['largest_rise'] = True
+        response[coin_dict[max(volume_change, key=volume_change.get)]]['largest_spike'] = True
+        response[coin_dict[max(avg_change_rate, key=avg_change_rate.get)]]['fastest_growth'] = True
+        response[coin_dict[min(avg_change_rate, key=avg_change_rate.get)]]['fastest_decline'] = True
         
-        print(analysis)
+        print(response)
+        
+        # TODO: send
+        
+        message = json.dumps(response)
+        on_message(message)
         
         print('Trained and analyzed all coins')
         time.sleep(60)
-
-
-def get_percentage(pred, data):
-    return (pred - data) / pred * 100
-
-
-req = {}  # 'close' of each coin in 
-
-
-# predict
-def on_message():
-    percentages = {}
-    response = {}
-    for i, coin in enumerate(coins):
-        req[coin] = get_data(coin)
-        curr_price = req[coin]['close']
         
-        scalers[i].transform(np.array(curr_price).reshape(-1, 1))
-        X = X.reshape(1, 1, 1)
-        
-        pred = models[i].predict(X)
-        pred = scalers[i].inverse_transform(pred)
-        
-        percentages[coin] = [0, get_percentage(pred, curr_price)]
-    percentages = sorted(percentages, key=lambda x: x[1][1], reverse=True)
-    
-    for i in enumerate(percentages, 1):
-        response[percentages[i][0]] = [i, percentages[i][1][1]]
-    
-    response['prediction_timestamp'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    # TODO: attach analysis results
-        
-    print(percentages)
-    print(response)
-    
-    return response
+        response[coin_dict[max(volatility, key=volatility.get)]]['most_volatile'] = False
+        response[coin_dict[min(volatility, key=volatility.get)]]['least_volatile'] = False
+        response[coin_dict[min(price_change, key=price_change.get)]]['largest_drop'] = False
+        response[coin_dict[max(price_change, key=price_change.get)]]['largest_rise'] = False
+        response[coin_dict[max(volume_change, key=volume_change.get)]]['largest_spike'] = False
+        response[coin_dict[max(avg_change_rate, key=avg_change_rate.get)]]['fastest_growth'] = False
+        response[coin_dict[min(avg_change_rate, key=avg_change_rate.get)]]['fastest_decline'] = False
 
     
 if __name__ == '__main__':
     before_train()
-    train_thread = Thread(target=train)
-    train_thread.start()
+    train_and_predict()

@@ -11,3 +11,5 @@ ai_hint/lstm_dropout*
 data_analysis/graphs
 
 __pycache__
+
+config.py

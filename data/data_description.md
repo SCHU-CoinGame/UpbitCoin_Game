@@ -43,4 +43,4 @@ high|고가 (USD)
 low|저가 (USD)
 close|종가 (USD)
 volume|거래량 (거래된 코인 개수)
-value|거래 금액 (거래된 코인의 개수에 대한 가격)
+value|거래대금
