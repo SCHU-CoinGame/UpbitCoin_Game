@@ -69,8 +69,8 @@ def get_data(coin, count=1, to=str(datetime.datetime.now()).split('.')[0][:-2]+'
     return pyupbit.get_ohlcv(ticker=coin, interval='minute1', count=count, to=to)
 
 
-def get_percentage(pred, data):
-    return (pred - data) / data * 100
+def get_percentage(future, current):
+    return (future - current) / current * 100
 
 
 def before_train():
@@ -159,11 +159,12 @@ def train_and_predict():
             models[i].save(model_paths[coin])
             
             # TODO: analyze
-        
-            volatility[coin] = ten_rows['close'].max() - ten_rows['close'].min()
-            price_change[coin] = (ten_rows['close'].iloc[-1] - ten_rows['close'].iloc[5]) / ten_rows['close'].iloc[5] * 100
-            volume_change[coin] = (ten_rows['volume'].iloc[-1] - ten_rows['volume'].iloc[5]) / ten_rows['volume'].iloc[5] * 100
-            avg_change_rate[coin] = ten_rows['close'].diff().dropna().mean()
+
+            percentage_changes = [get_percentage(ten_closes[i+1], ten_closes[i]) for i in range(9)]
+            volatility[coin] = np.std(percentage_changes)  # 10분 간의 변동성
+            price_change[coin] = get_percentage(ten_closes[-1], ten_closes[5])  # 5분 간의 가격 변화율
+            volume_change[coin] = get_percentage(ten_rows['volume'].iloc[-1], ten_rows['volume'].iloc[5])  # 5분 간의 거래량 변화
+            avg_change_rate[coin] = sum(percentage_changes) / len(percentage_changes)  # 10분 간의 평균 변화율
             
             # TODO: predict
             
