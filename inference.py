@@ -85,7 +85,6 @@ def before_train():
                 diff_min = now - datetime.datetime.strptime(last_times[coin], '%Y-%m-%d %H:%M:%S')
                 diff_min = diff_min.total_seconds() // 60
                 this_time = get_data(coin=coin, count=int(diff_min), to=current_time).reset_index()
-                this_time = this_time.reset_index()
                 this_time.to_csv(data_paths[coin], mode='a', header=not os.path.exists(data_paths[coin]), index=False)
                     
                 X = this_time['close'].values.reshape(-1, 1)
@@ -100,10 +99,11 @@ def before_train():
                     y.append(scaled_data[j + 1, 0])
                 print(i, coin, len(X), len(y))
                     
-                X, y = np.array(X), np.array(y)
-                X = X.reshape(X.shape[0], X.shape[1], 1)
-                models[i].fit(X, y, epochs=1, batch_size=1)
-                models[i].save(model_paths[coin])
+                if len(X) >= 1 and len(y) >= 1:
+                    X, y = np.array(X), np.array(y)
+                    X = X.reshape(X.shape[0], X.shape[1], 1)
+                    models[i].fit(X, y, epochs=1, batch_size=1)
+                    models[i].save(model_paths[coin])
                 
                 last_times[coin] = current_time
                 now = datetime.datetime.now()
@@ -199,7 +199,7 @@ def train_and_predict():
         message = json.dumps(response)
         on_message(message)
         
-        print('Trained and analyzed all coins')
+        print('Trained and analyzed all coins', datetime.datetime.now())
         time.sleep(60)
         
         response[coin_dict[max(volatility, key=volatility.get)]]['most_volatile'] = False
