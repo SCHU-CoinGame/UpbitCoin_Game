@@ -85,6 +85,7 @@ def before_train():
                 diff_min = now - datetime.datetime.strptime(last_times[coin], '%Y-%m-%d %H:%M:%S')
                 diff_min = diff_min.total_seconds() // 60
                 this_time = get_data(coin=coin, count=int(diff_min), to=current_time).reset_index()
+                this_time = this_time.reset_index()
                 this_time.to_csv(data_paths[coin], mode='a', header=not os.path.exists(data_paths[coin]), index=False)
                     
                 X = this_time['close'].values.reshape(-1, 1)
@@ -137,8 +138,8 @@ def train_and_predict():
         percentages = {}
     
         for i, coin in enumerate(coins):
-            this_time = get_data(coin)
-            # this_time.to_csv(data_paths[coin], mode='a', header=not os.path.exists(data_paths[coin]), index=False)
+            this_time = get_data(coin).reset_index()
+            this_time.to_csv(data_paths[coin], mode='a', header=not os.path.exists(data_paths[coin]), index=False)
             ten_rows = get_last_row(coin, 10)
             ten_closes = ten_rows['close'].values
             
@@ -146,7 +147,7 @@ def train_and_predict():
             
             X = np.array(ten_closes).reshape(-1, 1)
             scalers[i].partial_fit(X)
-            # joblib.dump(scalers[i], scaler_paths[coin])
+            joblib.dump(scalers[i], scaler_paths[coin])
             scaled_data = scalers[i].transform(X)
             
             X = [scaled_data[-2]]
@@ -155,7 +156,7 @@ def train_and_predict():
             X = X.reshape(X.shape[0], X.shape[1], 1)
             
             models[i].fit(X, y, epochs=1, batch_size=1)
-            # models[i].save(model_paths[coin])
+            models[i].save(model_paths[coin])
             
             # TODO: analyze
         
