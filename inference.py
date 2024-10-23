@@ -138,12 +138,12 @@ def train_test():
     for i, coin in enumerate(coins):
         # this_time = get_data(coin).reset_index()
         # this_time.to_csv(data_paths[coin], mode='a', header=not os.path.exists(data_paths[coin]), index=False)
-        ten_rows = get_last_row(coin, 10)
-        ten_closes = ten_rows['close'].values
+        recent_rows = get_last_row(coin, 5)
+        recent_closes = recent_rows['close'].values
         
         # TODO: train
         
-        X = np.array(ten_closes).reshape(-1, 1)
+        X = np.array(recent_closes).reshape(-1, 1)
         scalers[i].partial_fit(X)
         # joblib.dump(scalers[i], scaler_paths[coin])
         scaled_data = scalers[i].transform(X)
@@ -158,15 +158,15 @@ def train_test():
         
         # TODO: analyze
 
-        percentage_changes = [get_percentage(ten_closes[i+1], ten_closes[i]) for i in range(9)]
-        volatility[coin] = np.std(percentage_changes)  # 10분 간의 변동성
-        price_change[coin] = get_percentage(ten_closes[-1], ten_closes[5])  # 5분 간의 가격 변화율
-        volume_change[coin] = get_percentage(ten_rows['volume'].iloc[-1], ten_rows['volume'].iloc[5])  # 5분 간의 거래량 변화
+        percentage_changes = [get_percentage(recent_closes[i+1], recent_closes[i]) for i in range(9)]
+        volatility[coin] = np.std(percentage_changes)  # 5분 간의 변동성
+        price_change[coin] = get_percentage(recent_closes[-1], recent_closes[0])  # 5분 간의 가격 변화율
+        volume_change[coin] = get_percentage(recent_rows['volume'].iloc[-1], recent_rows['volume'].iloc[0])  # 5분 간의 거래량 변화
         avg_change_rate[coin] = sum(percentage_changes) / len(percentage_changes)  # 10분 간의 평균 변화율
         
         # TODO: predict
         
-        curr_price = ten_closes[-1]
+        curr_price = recent_closes[-1]
         X = scalers[i].transform(np.array([curr_price]).reshape(-1, 1))
         X = X.reshape(X.shape[0], X.shape[1], 1)
         
@@ -215,19 +215,24 @@ def train_test():
 
 # 1 min interval (train & analyze)
 def train_and_predict():
+    
     while True:
         
         percentages = {}
     
         for i, coin in enumerate(coins):
+            if last_times[coin] == str(datetime.datetime.now()).split('.')[0][:-2]+'00':
+                continue
+            last_times[coin] = str(datetime.datetime.now()).split('.')[0][:-2]+'00'
+            
             this_time = get_data(coin).reset_index()
             this_time.to_csv(data_paths[coin], mode='a', header=not os.path.exists(data_paths[coin]), index=False)
-            ten_rows = get_last_row(coin, 10)
-            ten_closes = ten_rows['close'].values
+            recent_rows = get_last_row(coin, 5)
+            recent_closes = recent_rows['close'].values
             
             # TODO: train
             
-            X = np.array(ten_closes).reshape(-1, 1)
+            X = np.array(recent_closes).reshape(-1, 1)
             scalers[i].partial_fit(X)
             joblib.dump(scalers[i], scaler_paths[coin])
             scaled_data = scalers[i].transform(X)
@@ -242,15 +247,15 @@ def train_and_predict():
             
             # TODO: analyze
 
-            percentage_changes = [get_percentage(ten_closes[i+1], ten_closes[i]) for i in range(9)]
-            volatility[coin] = np.std(percentage_changes)  # 10분 간의 변동성
-            price_change[coin] = get_percentage(ten_closes[-1], ten_closes[5])  # 5분 간의 가격 변화율
-            volume_change[coin] = get_percentage(ten_rows['volume'].iloc[-1], ten_rows['volume'].iloc[5])  # 5분 간의 거래량 변화
-            avg_change_rate[coin] = sum(percentage_changes) / len(percentage_changes)  # 10분 간의 평균 변화율
+            percentage_changes = [get_percentage(recent_closes[i+1], recent_closes[i]) for i in range(len(recent_closes) - 1)]
+            volatility[coin] = np.std(percentage_changes)  # 5분 간의 변동성
+            price_change[coin] = get_percentage(recent_closes[-1], recent_closes[0])  # 5분 간의 가격 변화율
+            volume_change[coin] = get_percentage(recent_rows['volume'].iloc[-1], recent_rows['volume'].iloc[0])  # 5분 간의 거래량 변화
+            avg_change_rate[coin] = sum(percentage_changes) / len(percentage_changes)  # 5분 간의 평균 변화율
             
             # TODO: predict
             
-            curr_price = ten_closes[-1]
+            curr_price = recent_closes[-1]
             X = scalers[i].transform(np.array([curr_price]).reshape(-1, 1))
             X = X.reshape(X.shape[0], X.shape[1], 1)
             
@@ -266,14 +271,32 @@ def train_and_predict():
             response[coin_dict[coin]]['percentage'] = percentage
             response[coin_dict[coin]]['rank'] = i + 1
             response[coin_dict[coin]]['prediction_timestamp'] = pred_time
+        
+        volatile_coin_idx = coin_dict[max(volatility, key=volatility.get)]
+        response[volatile_coin_idx]['most_volatile'] = True
+        not_volatile_coin_idx = coin_dict[min(volatility, key=volatility.get)]
+        if not_volatile_coin_idx == volatile_coin_idx:
+            response[coin_dict[sorted(volatility.items(), key=lambda x: x[1])[1][0]]]['least_volatile'] = True
+        else:
+            response[not_volatile_coin_idx]['least_volatile'] = True
             
-        response[coin_dict[max(volatility, key=volatility.get)]]['most_volatile'] = True
-        response[coin_dict[min(volatility, key=volatility.get)]]['least_volatile'] = True
-        response[coin_dict[min(price_change, key=price_change.get)]]['largest_drop'] = True
-        response[coin_dict[max(price_change, key=price_change.get)]]['largest_rise'] = True
+        largest_rise_coin = coin_dict[max(price_change, key=price_change.get)]
+        response[largest_rise_coin]['largest_rise'] = True
+        largest_drop_coin = coin_dict[min(price_change, key=price_change.get)]
+        if largest_rise_coin == largest_drop_coin:
+            response[coin_dict[sorted(price_change.items(), key=lambda x: x[1])[1][0]]]['largest_drop'] = True
+        else:
+            response[largest_drop_coin]['largest_drop'] = True
+        
         response[coin_dict[max(volume_change, key=volume_change.get)]]['largest_spike'] = True
-        response[coin_dict[max(avg_change_rate, key=avg_change_rate.get)]]['fastest_growth'] = True
-        response[coin_dict[min(avg_change_rate, key=avg_change_rate.get)]]['fastest_decline'] = True
+        
+        fastest_growth_coin = coin_dict[max(avg_change_rate, key=avg_change_rate.get)]
+        response[fastest_growth_coin]['fastest_growth'] = True
+        fastest_decline_coin = coin_dict[min(avg_change_rate, key=avg_change_rate.get)]
+        if fastest_growth_coin == fastest_decline_coin:
+            response[coin_dict[sorted(avg_change_rate.items(), key=lambda x: x[1])[1][0]]]['fastest_decline'] = True
+        else:
+            response[fastest_decline_coin]['fastest_decline'] = True
         
         print(response)
         
@@ -283,7 +306,7 @@ def train_and_predict():
         on_message(message)
         
         print('Trained and analyzed all coins', datetime.datetime.now())
-        time.sleep(60)
+        time.sleep(cfg.seconds)
         
         response[coin_dict[max(volatility, key=volatility.get)]]['most_volatile'] = False
         response[coin_dict[min(volatility, key=volatility.get)]]['least_volatile'] = False
