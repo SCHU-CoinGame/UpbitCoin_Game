@@ -145,10 +145,10 @@ def analyze_and_predict():
             recent_closes = recent_rows['close'].values
             
             percentage_changes = [get_percentage(recent_closes[i+1], recent_closes[i]) for i in range(len(recent_closes) - 1)]
-            volatility[coin] = np.std(percentage_changes)  # 5분 간의 변동성
-            price_change[coin] = get_percentage(recent_closes[-1], recent_closes[0])  # 5분 간의 가격 변화율
-            volume_change[coin] = get_percentage(recent_rows['volume'].iloc[-1], recent_rows['volume'].iloc[0])  # 5분 간의 거래량 변화
-            avg_change_rate[coin] = sum(percentage_changes) / len(percentage_changes)  # 5분 간의 평균 변화율
+            volatility[coin] = np.std(percentage_changes)  # 변동성
+            price_change[coin] = get_percentage(recent_closes[-1], recent_closes[0])  # 가격 변화율
+            volume_change[coin] = get_percentage(recent_rows['volume'].iloc[-1], recent_rows['volume'].iloc[0])  # 거래량 변화
+            avg_change_rate[coin] = sum(percentage_changes) / len(percentage_changes)  # 평균 변화율
             
             # TODO: predict
             
