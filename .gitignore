@@ -7,9 +7,12 @@ data/from_pyupbit/
 ai_hint/ensemble_*
 ai_hint/models
 ai_hint/lstm_dropout*
+ai_hint/results
 
 data_analysis/graphs
 
 __pycache__
 
 config.py
+
+*/*.tar.gz
