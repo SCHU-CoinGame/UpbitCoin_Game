@@ -57,7 +57,7 @@ for coin in coins:
     scalers.append(joblib.load(scaler_paths[coin]))
     
     data_paths[coin] = os.path.join(data_dir, f'{coin}.csv')
-    
+
     last_times[coin] = get_last_date(coin)
     
     response.append({'code':coin, 'rank':-1, 'prediction_timestamp':'', 'percentage':0.0,
@@ -169,31 +169,39 @@ def analyze_and_predict():
             response[coin_dict[coin]]['rank'] = i + 1
             response[coin_dict[coin]]['prediction_timestamp'] = pred_time
         
-        volatile_coin_idx = coin_dict[max(volatility, key=volatility.get)]
-        response[volatile_coin_idx]['most_volatile'] = True
-        not_volatile_coin_idx = coin_dict[min(volatility, key=volatility.get)]
-        if not_volatile_coin_idx == volatile_coin_idx:
-            response[coin_dict[sorted(volatility.items(), key=lambda x: x[1])[1][0]]]['least_volatile'] = True
-        else:
-            response[not_volatile_coin_idx]['least_volatile'] = True
+        # volatile_coin_idx = coin_dict[max(volatility, key=volatility.get)]
+        # response[volatile_coin_idx]['most_volatile'] = True
+        # not_volatile_coin_idx = coin_dict[min(volatility, key=volatility.get)]
+        # if not_volatile_coin_idx == volatile_coin_idx:
+        #     response[coin_dict[sorted(volatility.items(), key=lambda x: x[1])[1][0]]]['least_volatile'] = True
+        # else:
+        #     response[not_volatile_coin_idx]['least_volatile'] = True
             
-        largest_rise_coin = coin_dict[max(price_change, key=price_change.get)]
-        response[largest_rise_coin]['largest_rise'] = True
-        largest_drop_coin = coin_dict[min(price_change, key=price_change.get)]
-        if largest_rise_coin == largest_drop_coin:
-            response[coin_dict[sorted(price_change.items(), key=lambda x: x[1])[1][0]]]['largest_drop'] = True
-        else:
-            response[largest_drop_coin]['largest_drop'] = True
+        # largest_rise_coin = coin_dict[max(price_change, key=price_change.get)]
+        # response[largest_rise_coin]['largest_rise'] = True
+        # largest_drop_coin = coin_dict[min(price_change, key=price_change.get)]
+        # if largest_rise_coin == largest_drop_coin:
+        #     response[coin_dict[sorted(price_change.items(), key=lambda x: x[1])[1][0]]]['largest_drop'] = True
+        # else:
+        #     response[largest_drop_coin]['largest_drop'] = True
         
+        # response[coin_dict[max(volume_change, key=volume_change.get)]]['largest_spike'] = True
+        
+        # fastest_growth_coin = coin_dict[max(avg_change_rate, key=avg_change_rate.get)]
+        # response[fastest_growth_coin]['fastest_growth'] = True
+        # fastest_decline_coin = coin_dict[min(avg_change_rate, key=avg_change_rate.get)]
+        # if fastest_growth_coin == fastest_decline_coin:
+        #     response[coin_dict[sorted(avg_change_rate.items(), key=lambda x: x[1])[1][0]]]['fastest_decline'] = True
+        # else:
+        #     response[fastest_decline_coin]['fastest_decline'] = True
+        
+        response[coin_dict[max(volatility, key=volatility.get)]]['most_volatile'] = True
+        response[coin_dict[min(volatility, key=volatility.get)]]['least_volatile'] = True
+        response[coin_dict[min(price_change, key=price_change.get)]]['largest_drop'] = True
+        response[coin_dict[max(price_change, key=price_change.get)]]['largest_rise'] = True
         response[coin_dict[max(volume_change, key=volume_change.get)]]['largest_spike'] = True
-        
-        fastest_growth_coin = coin_dict[max(avg_change_rate, key=avg_change_rate.get)]
-        response[fastest_growth_coin]['fastest_growth'] = True
-        fastest_decline_coin = coin_dict[min(avg_change_rate, key=avg_change_rate.get)]
-        if fastest_growth_coin == fastest_decline_coin:
-            response[coin_dict[sorted(avg_change_rate.items(), key=lambda x: x[1])[1][0]]]['fastest_decline'] = True
-        else:
-            response[fastest_decline_coin]['fastest_decline'] = True
+        response[coin_dict[max(avg_change_rate, key=avg_change_rate.get)]]['fastest_growth'] = True
+        response[coin_dict[min(avg_change_rate, key=avg_change_rate.get)]]['fastest_decline'] = True
         
         print(response)
         
@@ -225,8 +233,8 @@ def train():
             
         last_time_dt = datetime.datetime.strptime(last_times[coin], '%Y-%m-%d %H:%M:00')
         now = datetime.datetime.now()
-        if last_time_dt >= now:
-            continue
+        # if last_time_dt >= now:
+        #     continue
         
         diff_min = now - last_time_dt
         diff_min = diff_min.total_seconds() // 60
@@ -254,6 +262,9 @@ def train():
             y.append(scaled_data[i + 1, 0])
         
         X, y = np.array(X), np.array(y)
+        if len(X) == 0:
+            continue
+        print(X.shape, y.shape)
         X = X.reshape(X.shape[0], X.shape[1], 1)
         
         models[i].fit(X, y, epochs=1, batch_size=1)
