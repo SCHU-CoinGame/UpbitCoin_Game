@@ -19,7 +19,7 @@ warnings.filterwarnings('ignore')
 model_dir = 'ai_hint/models'
 data_dir = 'data/from_pyupbit'
 
-coins = ['KRW-BTC', 'KRW-SXP', 'KRW-SUI', 'KRW-ARK', 'KRW-SHIB', 'KRW-SEI', 'KRW-HIFI', 'KRW-XRP', 'KRW-UXLINK']
+coins = ['KRW-BTC', 'KRW-ETH', 'KRW-DOGE', 'KRW-BIGTIME', 'KRW-CVC', 'KRW-UXLINK', 'KRW-SOL', 'KRW-XRP', 'KRW-SXP']
 coin_dict = {coin: i for i, coin in enumerate(coins)}
 
 cfg = config.Config()
@@ -57,7 +57,7 @@ for coin in coins:
     scalers.append(joblib.load(scaler_paths[coin]))
     
     data_paths[coin] = os.path.join(data_dir, f'{coin}.csv')
-    
+
     last_times[coin] = get_last_date(coin)
     
     response.append({'code':coin, 'rank':-1, 'prediction_timestamp':'', 'percentage':0.0,
@@ -169,31 +169,39 @@ def analyze_and_predict():
             response[coin_dict[coin]]['rank'] = i + 1
             response[coin_dict[coin]]['prediction_timestamp'] = pred_time
         
-        volatile_coin_idx = coin_dict[max(volatility, key=volatility.get)]
-        response[volatile_coin_idx]['most_volatile'] = True
-        not_volatile_coin_idx = coin_dict[min(volatility, key=volatility.get)]
-        if not_volatile_coin_idx == volatile_coin_idx:
-            response[coin_dict[sorted(volatility.items(), key=lambda x: x[1])[1][0]]]['least_volatile'] = True
-        else:
-            response[not_volatile_coin_idx]['least_volatile'] = True
+        # volatile_coin_idx = coin_dict[max(volatility, key=volatility.get)]
+        # response[volatile_coin_idx]['most_volatile'] = True
+        # not_volatile_coin_idx = coin_dict[min(volatility, key=volatility.get)]
+        # if not_volatile_coin_idx == volatile_coin_idx:
+        #     response[coin_dict[sorted(volatility.items(), key=lambda x: x[1])[1][0]]]['least_volatile'] = True
+        # else:
+        #     response[not_volatile_coin_idx]['least_volatile'] = True
             
-        largest_rise_coin = coin_dict[max(price_change, key=price_change.get)]
-        response[largest_rise_coin]['largest_rise'] = True
-        largest_drop_coin = coin_dict[min(price_change, key=price_change.get)]
-        if largest_rise_coin == largest_drop_coin:
-            response[coin_dict[sorted(price_change.items(), key=lambda x: x[1])[1][0]]]['largest_drop'] = True
-        else:
-            response[largest_drop_coin]['largest_drop'] = True
+        # largest_rise_coin = coin_dict[max(price_change, key=price_change.get)]
+        # response[largest_rise_coin]['largest_rise'] = True
+        # largest_drop_coin = coin_dict[min(price_change, key=price_change.get)]
+        # if largest_rise_coin == largest_drop_coin:
+        #     response[coin_dict[sorted(price_change.items(), key=lambda x: x[1])[1][0]]]['largest_drop'] = True
+        # else:
+        #     response[largest_drop_coin]['largest_drop'] = True
         
+        # response[coin_dict[max(volume_change, key=volume_change.get)]]['largest_spike'] = True
+        
+        # fastest_growth_coin = coin_dict[max(avg_change_rate, key=avg_change_rate.get)]
+        # response[fastest_growth_coin]['fastest_growth'] = True
+        # fastest_decline_coin = coin_dict[min(avg_change_rate, key=avg_change_rate.get)]
+        # if fastest_growth_coin == fastest_decline_coin:
+        #     response[coin_dict[sorted(avg_change_rate.items(), key=lambda x: x[1])[1][0]]]['fastest_decline'] = True
+        # else:
+        #     response[fastest_decline_coin]['fastest_decline'] = True
+        
+        response[coin_dict[max(volatility, key=volatility.get)]]['most_volatile'] = True
+        response[coin_dict[min(volatility, key=volatility.get)]]['least_volatile'] = True
+        response[coin_dict[min(price_change, key=price_change.get)]]['largest_drop'] = True
+        response[coin_dict[max(price_change, key=price_change.get)]]['largest_rise'] = True
         response[coin_dict[max(volume_change, key=volume_change.get)]]['largest_spike'] = True
-        
-        fastest_growth_coin = coin_dict[max(avg_change_rate, key=avg_change_rate.get)]
-        response[fastest_growth_coin]['fastest_growth'] = True
-        fastest_decline_coin = coin_dict[min(avg_change_rate, key=avg_change_rate.get)]
-        if fastest_growth_coin == fastest_decline_coin:
-            response[coin_dict[sorted(avg_change_rate.items(), key=lambda x: x[1])[1][0]]]['fastest_decline'] = True
-        else:
-            response[fastest_decline_coin]['fastest_decline'] = True
+        response[coin_dict[max(avg_change_rate, key=avg_change_rate.get)]]['fastest_growth'] = True
+        response[coin_dict[min(avg_change_rate, key=avg_change_rate.get)]]['fastest_decline'] = True
         
         print(response)
         
@@ -203,7 +211,7 @@ def analyze_and_predict():
         on_message(message)
         
         print('Trained and analyzed all coins', datetime.datetime.now())
-        time.sleep(cfg.seconds)
+        time.sleep(cfg.predict_seconds)
         
         response[coin_dict[max(volatility, key=volatility.get)]]['most_volatile'] = False
         response[coin_dict[min(volatility, key=volatility.get)]]['least_volatile'] = False
@@ -214,50 +222,59 @@ def analyze_and_predict():
         response[coin_dict[min(avg_change_rate, key=avg_change_rate.get)]]['fastest_decline'] = False
 
 
-def train():
-    
+def train_thread():
     while True:
-    
-        for i, coin in enumerate(coins):
+        Thread(target=train, daemon=True).start()
+        time.sleep(cfg.train_seconds)
 
-            now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:00')
-            if last_times[coin] >= now:
-                continue
+
+def train():
+    for i, coin in enumerate(coins):
             
-            diff_min = datetime.datetime.strptime(now, '%Y-%m-%d %H:%M:%S') - datetime.datetime.strptime(last_times[coin], '%Y-%m-%d %H:%M:%S')
-            diff_min = diff_min.total_seconds() // 60
-            this_time = get_data(coin=coin, count=int(diff_min), to=now).reset_index()
-            this_time.to_csv(data_paths[coin], mode='a', header=not os.path.exists(data_paths[coin]), index=False)
-            
-            last_times[coin] = now
-            
-            # TODO: train
-            
-            if len(this_time) == 0:
-                continue
-            
-            X = this_time.close.values.reshape(-1, 1)
-            scalers[i].partial_fit(X)
-            joblib.dump(scalers[i], scaler_paths[coin])
-            scaled_data = scalers[i].transform(X)
-            
-            X, y = [], []
-            
-            for i in range(len(scaled_data) - 1):
-                X.append(scaled_data[i:(i + 1), 0])
-                y.append(scaled_data[i + 1, 0])
-            
-            X, y = np.array(X), np.array(y)
-            X = X.reshape(X.shape[0], X.shape[1], 1)
-            
-            models[i].fit(X, y, epochs=1, batch_size=1)
-            models[i].save(model_paths[coin])
-            
-            print(f'{coin} trained', last_times[coin])
+        last_time_dt = datetime.datetime.strptime(last_times[coin], '%Y-%m-%d %H:%M:00')
+        now = datetime.datetime.now()
+        # if last_time_dt >= now:
+        #     continue
+        
+        diff_min = now - last_time_dt
+        diff_min = diff_min.total_seconds() // 60
+        
+        now = now.strftime('%Y-%m-%d %H:%M:00')
+        this_time = get_data(coin=coin, count=int(diff_min), to=now).reset_index()
+        this_time.to_csv(data_paths[coin], mode='a', header=not os.path.exists(data_paths[coin]), index=False)
+        
+        last_times[coin] = now
+        
+        # TODO: train
+        
+        if len(this_time) == 0:
+            continue
+        
+        X = this_time.close.values.reshape(-1, 1)
+        scalers[i].partial_fit(X)
+        joblib.dump(scalers[i], scaler_paths[coin])
+        scaled_data = scalers[i].transform(X)
+        
+        X, y = [], []
+        
+        for i in range(len(scaled_data) - 1):
+            X.append(scaled_data[i:(i + 1), 0])
+            y.append(scaled_data[i + 1, 0])
+        
+        X, y = np.array(X), np.array(y)
+        if len(X) == 0:
+            continue
+        print(X.shape, y.shape)
+        X = X.reshape(X.shape[0], X.shape[1], 1)
+        
+        models[i].fit(X, y, epochs=1, batch_size=1)
+        models[i].save(model_paths[coin])
+        
+        print(f'{coin} trained', last_times[coin])
 
     
 if __name__ == '__main__':
     before_train()
-    Thread(target=train).start()
+    Thread(target=train_thread).start()
     Thread(target=analyze_and_predict).start()
     
