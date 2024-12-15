@@ -4,10 +4,10 @@ data/from_s3/*.csv
 data/*.csv
 data/from_pyupbit/
 
-ai_hint/ensemble_*
-ai_hint/models
-ai_hint/lstm_dropout*
-ai_hint/results
+ai_hint/all_features/models
+ai_hint/close_only/models
+ai_hint/all_features/results
+ai_hint/close_only/results
 
 data_analysis/graphs
 
@@ -16,3 +16,4 @@ __pycache__
 config.py
 
 */*.tar.gz
+*/*.zip
