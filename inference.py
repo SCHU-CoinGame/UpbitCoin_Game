@@ -16,7 +16,7 @@ import config
 warnings.filterwarnings('ignore')
 
 
-model_dir = 'ai_hint/all_features/models'
+model_dir = 'ai_hint/all_features/models/close_included'
 data_dir = 'data/from_pyupbit'
 
 coins = ['KRW-BTC', 'KRW-ETH', 'KRW-DOGE', 'KRW-BIGTIME', 'KRW-SUI', 'KRW-UXLINK', 'KRW-SOL', 'KRW-XRP', 'KRW-SXP']
@@ -164,13 +164,13 @@ def analyze_and_predict():
             X = recent_rows[cfg.used_cols][1:]
             X = scalers[i].transform(X)
             
+            X = X.reshape(X.shape[0], 1, X.shape[1])
             pred = models[i].predict(X)
             pred = inverse_transform_predictions(pred, scalers[i])
             
-            future = curr_price + pred[0]
-            response[coin_dict[coin]]['future'] = future
+            response[coin_dict[coin]]['future'] = pred
             
-            percentages[coin] = get_percentage(future, curr_price)
+            percentages[coin] = get_percentage(pred, curr_price)
             
         sorted_percentages = sorted(percentages.items(), key=lambda x: x[1], reverse=True)
         
@@ -214,6 +214,8 @@ def train_thread():
 
 
 def train():
+    train_start_time = datetime.datetime.now()
+    print('Train started', train_start_time)
     for i, coin in enumerate(coins):
             
         last_time_dt = datetime.datetime.strptime(last_times[coin], '%Y-%m-%d %H:%M:00')
@@ -256,6 +258,7 @@ def train():
         models[i].save(model_paths[coin])
         
         print(f'{coin} trained', last_times[coin])
+    print('Trained all coins', 'Took', datetime.datetime.now() - train_start_time)
 
     
 if __name__ == '__main__':
