@@ -8,6 +8,8 @@ ai_hint/all_features/models
 ai_hint/close_only/models
 ai_hint/all_features/results
 ai_hint/close_only/results
+ai_hint/all_features_w_DA/models
+ai_hint/all_features_w_DA/results
 
 data_analysis/graphs
 

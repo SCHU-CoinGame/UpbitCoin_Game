@@ -16,7 +16,7 @@ import config
 warnings.filterwarnings('ignore')
 
 
-model_dir = 'ai_hint/all_features/models/close_included'
+model_dir = 'ai_hint/all_features_w_DA/models/fewer'
 data_dir = 'data/from_pyupbit'
 
 coins = ['KRW-BTC', 'KRW-ETH', 'KRW-DOGE', 'KRW-BIGTIME', 'KRW-SUI', 'KRW-UXLINK', 'KRW-SOL', 'KRW-XRP', 'KRW-SXP']
@@ -95,7 +95,13 @@ def before_train():
                 this_time.to_csv(data_paths[coin], mode='a', header=not os.path.exists(data_paths[coin]), index=False)
                 
                 this_time['close_change'] = this_time['close'].diff().fillna(get_last_row(coin, 1)['close'] - this_time.iloc[-1]['close'])
-                X = this_time[cfg.used_cols]
+                
+                # fewer
+                this_time['percentage_change'] = get_percentage(this_time['close'], this_time['close'].shift(1)).fillna(0)
+                this_time['volatility'] = this_time['percentage_change'].rolling(window=5).std()
+                this_time['avg_change_rate'] = this_time['percentage_change'].rolling(window=5).mean()
+                
+                X = this_time[cfg.used_cols].fillna(0)
                 scalers[i].partial_fit(X)
                 joblib.dump(scalers[i], scaler_paths[coin])
                 scaled_data = scalers[i].transform(X)
@@ -148,7 +154,7 @@ def analyze_and_predict():
             # TODO: analyze
             
             recent_rows = get_last_row(coin, cfg.rows+1)
-            recent_closes = recent_rows['close'].values[1:]
+            recent_closes = recent_rows['close'].values
             
             percentage_changes = [get_percentage(recent_closes[i+1], recent_closes[i]) for i in range(len(recent_closes) - 1)]
             volatility[coin] = np.std(percentage_changes)  # 변동성
@@ -158,19 +164,23 @@ def analyze_and_predict():
             
             # TODO: predict
             
-            curr_price = recent_closes[-1]
+            recent_rows = recent_rows.iloc[-1]
+            recent_rows['close_change'] = recent_closes[-1] - recent_closes[-2]
+            recent_rows['percentage_change'] = percentage_changes[-1]
+            recent_rows['volatility'] = volatility[coin]
+            recent_rows['avg_change_rate'] = avg_change_rate[coin]
             
-            recent_rows['close_change'] = recent_rows['close'].diff()
-            X = recent_rows[cfg.used_cols][1:]
-            X = scalers[i].transform(X)
+            X = recent_rows[cfg.used_cols].fillna(0)
+            X = scalers[i].transform(X.values.reshape(1, -1))
+            # X = X.reshape(X.shape[0], 1, X.shape[1])
+            X = tf.convert_to_tensor(X.reshape(X.shape[0], 1, X.shape[1]), dtype=tf.float32)
             
-            X = X.reshape(X.shape[0], 1, X.shape[1])
             pred = models[i].predict(X)
             pred = inverse_transform_predictions(pred, scalers[i])
             
             response[coin_dict[coin]]['future'] = pred[0]
             
-            percentages[coin] = get_percentage(pred[0], curr_price)
+            percentages[coin] = get_percentage(pred[0], recent_closes[-1])
             
         sorted_percentages = sorted(percentages.items(), key=lambda x: x[1], reverse=True)
         
@@ -188,12 +198,24 @@ def analyze_and_predict():
         response[coin_dict[max(avg_change_rate, key=avg_change_rate.get)]]['fastest_growth'] = True
         response[coin_dict[min(avg_change_rate, key=avg_change_rate.get)]]['fastest_decline'] = True
         
-        print(response)
-        
         # TODO: send
         
         message = json.dumps(response)
         on_message(message)
+        
+        print()
+        print(f'{"Code":<15} {"Future":<20} {"Percentage":<20} {"Rank":<3} {"Tags"}')
+        print('-' * 65)
+        for r in response:
+            code = r['code']
+            future = r['future']
+            percentage = r['percentage']
+            rank = r['rank']
+            
+            tags = [tag for tag in r if tag not in ['code', 'future', 'percentage', 'rank', 'prediction_timestamp'] and r[tag]]
+            tags_str = ' '.join(tags)
+    
+            print(f'{code:<15} {future:<20.8f} {percentage:<20.8f} {rank:<3} {tags_str}')
         
         print('Trained and analyzed all coins', datetime.datetime.now())
         time.sleep(cfg.predict_seconds)
@@ -228,7 +250,6 @@ def train():
         
         now = now.strftime('%Y-%m-%d %H:%M:00')
         this_time = get_data(coin=coin, count=int(diff_min), to=now).reset_index()
-        this_time.to_csv(data_paths[coin], mode='a', header=not os.path.exists(data_paths[coin]), index=False)
         
         last_times[coin] = now
         
@@ -237,8 +258,18 @@ def train():
         if len(this_time) == 0:
             continue
         
-        this_time['close_change'] = this_time['close'] - get_last_row(coin, 1)['close']
-        X = this_time[cfg.used_cols]
+        recent_rows = get_last_row(coin, cfg.rows)
+        this_time.to_csv(data_paths[coin], mode='a', header=not os.path.exists(data_paths[coin]), index=False)
+
+        combined_rows = pd.concat([recent_rows, this_time], ignore_index=True)
+        this_time['close_change'] = this_time['close'].diff()[-len(this_time):]
+        combined_rows['percentage_change'] = get_percentage(combined_rows['close'], combined_rows['close'].shift(1))
+        combined_rows['volatility'] = combined_rows['percentage_change'].rolling(window=5).std()
+        combined_rows['avg_change_rate'] = combined_rows['percentage_change'].rolling(window=5).mean()
+        this_time[['percentage_change', 'volatility', 'avg_change_rate']] = combined_rows[
+            ['percentage_change', 'volatility', 'avg_change_rate']].iloc[-len(this_time):].reset_index(drop=True)
+        
+        X = this_time[cfg.used_cols].fillna(0)
         scalers[i].partial_fit(X)
         joblib.dump(scalers[i], scaler_paths[coin])
         scaled_data = scalers[i].transform(X)
