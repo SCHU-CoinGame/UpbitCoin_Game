@@ -19,10 +19,12 @@ warnings.filterwarnings('ignore')
 model_dir = 'ai_hint/all_features_w_DA/models/fewer'
 data_dir = 'data/from_pyupbit'
 
-coins = ['KRW-BTC', 'KRW-ETH', 'KRW-DOGE', 'KRW-BIGTIME', 'KRW-SUI', 'KRW-UXLINK', 'KRW-SOL', 'KRW-XRP', 'KRW-SXP']
+cfg = config.Config()
+
+coins = cfg.coins
 coin_dict = {coin: i for i, coin in enumerate(coins)}
 
-cfg = config.Config()
+timestep = 1
 
 last_times = {}  # csv 파일 마지막에 빈 줄 하나 있어야 함
 
@@ -62,13 +64,16 @@ for coin in coins:
     scaler_paths[coin] = os.path.join(model_dir, f'{coin}_scaler.pkl')
     scalers.append(joblib.load(scaler_paths[coin]))
     
-    data_paths[coin] = os.path.join(data_dir, f'{coin}.csv')
-
+    if not os.path.exists(os.path.join(data_dir, 'dropout_attention', f'{coin}.csv')):
+        data_paths[coin] = os.path.join(data_dir, f'{coin}.csv')
+    else:
+        data_paths[coin] = os.path.join(data_dir, 'dropout_attention', f'{coin}.csv')
+        
     last_times[coin] = get_last_date(coin)
     
     response.append({'code':coin, 'rank':-1, 'prediction_timestamp':'', 'percentage':0.0, 'future':0.0,
                      'most_volatile':False, 'least_volatile':False, 'largest_drop':False, 'largest_rise':False,
-                     'largest_spike':False, 'fastest_growth':False, 'fastest_decline':False})
+                     'largest_spike':False, 'fastest_growth':False, 'fastest_decline':False, 'sell_up': 0.0, 'sell_down': 0.0})
     
     
 # TODO: get data from DB
@@ -108,14 +113,14 @@ def before_train():
                 
                 X = []
                 y = []
-                for j in range(len(scaled_data) - 1):
-                    X.append(scaled_data[j:(j + 1), :])
-                    y.append(scaled_data[j + 1, -1])
-                print(i, coin, len(X), len(y))
+                for j in range(len(scaled_data) - timestep):
+                    X.append(scaled_data[j:(j + timestep), :])
+                    y.append(scaled_data[j + timestep, -1])
+                # print(i, coin, len(X), len(y))
                     
                 if len(X) >= 1 and len(y) >= 1:
                     X, y = np.array(X), np.array(y)
-                    models[i].fit(X, y, epochs=20, batch_size=1)
+                    models[i].partial_fit(X, y, epochs=20, batch_size=1, verbose=0)
                     models[i].save(model_paths[coin])
                 
                 last_times[coin] = current_time
@@ -136,6 +141,20 @@ def on_message(msg):
         print(f'An error occurred: {e}')
     
     return response
+
+
+def get_sellprice(percentage, current_price, coin_idx):
+    config_tmp = config.Config()
+    
+    coins_w = config_tmp.coins_w
+    coins_up_ratio = config_tmp.coins_up_ratio
+    coins_down_ratio = config_tmp.coins_down_ratio
+    
+    percent = abs(percentage) * coins_w[coin_idx]
+    sell_up = current_price + current_price * percent * coins_up_ratio[coin_idx]
+    sell_down = current_price - current_price * percent * coins_down_ratio[coin_idx]
+    
+    return sell_up, sell_down
 
 
 volatility = {}
@@ -165,14 +184,15 @@ def analyze_and_predict():
             # TODO: predict
             
             recent_rows = recent_rows.iloc[-1]
-            recent_rows['close_change'] = recent_closes[-1] - recent_closes[-2]
+            # recent_rows['close_change'] = recent_closes[-1] - recent_closes[-2]
+            one_recent = pyupbit.get_current_price(coins[i])
+            recent_rows['close_change'] = one_recent - recent_closes[-2]
             recent_rows['percentage_change'] = percentage_changes[-1]
             recent_rows['volatility'] = volatility[coin]
             recent_rows['avg_change_rate'] = avg_change_rate[coin]
             
             X = recent_rows[cfg.used_cols].fillna(0)
             X = scalers[i].transform(X.values.reshape(1, -1))
-            # X = X.reshape(X.shape[0], 1, X.shape[1])
             X = tf.convert_to_tensor(X.reshape(X.shape[0], 1, X.shape[1]), dtype=tf.float32)
             
             pred = models[i].predict(X)
@@ -180,7 +200,11 @@ def analyze_and_predict():
             
             response[coin_dict[coin]]['future'] = pred[0]
             
-            percentages[coin] = get_percentage(pred[0], recent_closes[-1])
+            # percentages[coin] = get_percentage(pred[0], recent_closes[-1])
+            percentages[coin] = get_percentage(pred[0], one_recent)
+            
+            # response[coin_dict[coin]]['sell_up'], response[coin_dict[coin]]['sell_down'] = get_sellprice(percentages[coin] / 100, recent_closes[-1], i)
+            response[coin_dict[coin]]['sell_up'], response[coin_dict[coin]]['sell_down'] = get_sellprice(percentages[coin] / 100, one_recent, i)
             
         sorted_percentages = sorted(percentages.items(), key=lambda x: x[1], reverse=True)
         
@@ -204,18 +228,21 @@ def analyze_and_predict():
         on_message(message)
         
         print()
-        print(f'{"Code":<15} {"Future":<20} {"Percentage":<20} {"Rank":<3} {"Tags"}')
-        print('-' * 65)
+        print(f'{"Code":<15} {"Future":<20} {"Percentage":<15} {"Rank":<5} {"Sell U":<20} {"Sell L":<20} {"Tags"}')
+        print('-' * 110)
         for r in response:
             code = r['code']
             future = r['future']
             percentage = r['percentage']
             rank = r['rank']
+            sell_up = r['sell_up']
+            sell_down = r['sell_down']
             
-            tags = [tag for tag in r if tag not in ['code', 'future', 'percentage', 'rank', 'prediction_timestamp'] and r[tag]]
+            tags = [tag for tag in r if tag not in ['code', 'future', 'percentage', 'rank', 'prediction_timestamp', 'sell_up', 'sell_down'] and r[tag]]
             tags_str = ' '.join(tags)
     
-            print(f'{code:<15} {future:<20.8f} {percentage:<20.8f} {rank:<3} {tags_str}')
+            print(f'{code:<15} {future:<20.8f} {percentage:<15.8f} {rank:<5} {sell_up:<20.8f} {sell_down:<20.8f} {tags_str}')
+        print()
         
         print('Trained and analyzed all coins', datetime.datetime.now())
         time.sleep(cfg.predict_seconds)
@@ -276,16 +303,16 @@ def train():
         
         X, y = [], []
         
-        for i in range(len(scaled_data) - 1):
-            X.append(scaled_data[i:(i + 1), :])
-            y.append(scaled_data[i + 1, -1])
+        for i in range(len(scaled_data) - timestep):
+            X.append(scaled_data[i:i+timestep, :])
+            y.append(scaled_data[i + timestep, -1])
         
         X, y = np.array(X), np.array(y)
         if len(X) == 0:
             continue
         print(X.shape, y.shape)
         
-        models[i].fit(X, y, epochs=20, batch_size=1)
+        models[i].partial_fit(X, y, epochs=20, batch_size=1)
         models[i].save(model_paths[coin])
         
         print(f'{coin} trained', last_times[coin])
