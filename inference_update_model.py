@@ -73,7 +73,7 @@ for coin in coins:
         
     last_times[coin] = get_last_date(coin)
     
-    response.append({'code':coin, 'rank':-1, 'prediction_timestamp':'', 'percentage':0.0, 'future':0.0,
+    response.append({'code':coin, 'rank':-1, 'prediction_timestamp':'', 'percentage':0.0, 'future':0.0, 'current':0.0,
                      'most_volatile':False, 'least_volatile':False, 'largest_drop':False, 'largest_rise':False,
                      'largest_spike':False, 'fastest_growth':False, 'fastest_decline':False, 'sell_up': 0.0, 'sell_down': 0.0})
     
@@ -84,7 +84,7 @@ def get_data(coin, count=1, to=datetime.datetime.now().strftime('%Y-%m-%d %H:%M:
 
 
 def get_percentage(future, current):
-    return (future - current) / current * 100
+    return ((future - current) / current) * 100
 
 
 def before_train():
@@ -153,10 +153,10 @@ def get_sellprice(percentage, current_price, coin_idx):
     coins_down_ratio = config_tmp.coins_down_ratio
     
     percent = abs(percentage) * coins_w[coin_idx]
-    sell_up = current_price + current_price * percent * coins_up_ratio[coin_idx]
-    sell_down = current_price - current_price * percent * coins_down_ratio[coin_idx]
+    sell_up = current_price + (current_price * percent * coins_up_ratio[coin_idx])
+    sell_down = current_price - (current_price * percent * coins_down_ratio[coin_idx])
     
-    return sell_up, sell_down
+    return sell_up, sell_down, current_price
 
 
 volatility = {}
@@ -206,8 +206,9 @@ def analyze_and_predict():
             percentages[coin] = get_percentage(pred[0], one_recent)
             
             # response[coin_dict[coin]]['sell_up'], response[coin_dict[coin]]['sell_down'] = get_sellprice(percentages[coin] / 100, recent_closes[-1], i)
-            sell_up, sell_down = get_sellprice(percentages[coin] / 100, one_recent, i)
+            sell_up, sell_down, current = get_sellprice(percentages[coin] / 100, one_recent, i)
             response[coin_dict[coin]]['sell_up'], response[coin_dict[coin]]['sell_down'] = (sell_up, sell_down) if sell_up > sell_down else (sell_down, sell_up)
+            response[coin_dict[coin]]['current'] = current
             
         sorted_percentages = sorted(percentages.items(), key=lambda x: x[1], reverse=True)
         
@@ -231,20 +232,21 @@ def analyze_and_predict():
         on_message(message)
         
         print()
-        print(f'{"Code":<15} {"Future":<20} {"Percentage":<15} {"Rank":<5} {"Sell U":<20} {"Sell L":<20} {"Tags"}')
+        print(f'{"Code":<15} {"Future":<20} {"Current":<15} {"Percentage":<15} {"Rank":<5} {"Sell U":<20} {"Sell L":<20} {"Tags"}')
         print('-' * 110)
         for r in response:
             code = r['code']
             future = r['future']
+            current = r['current']
             percentage = r['percentage']
             rank = r['rank']
             sell_up = r['sell_up']
             sell_down = r['sell_down']
             
-            tags = [tag for tag in r if tag not in ['code', 'future', 'percentage', 'rank', 'prediction_timestamp', 'sell_up', 'sell_down'] and r[tag]]
+            tags = [tag for tag in r if tag not in ['code', 'future', 'current', 'percentage', 'rank', 'prediction_timestamp', 'sell_up', 'sell_down'] and r[tag]]
             tags_str = ' '.join(tags)
     
-            print(f'{code:<15} {future:<20.8f} {percentage:<15.8f} {rank:<5} {sell_up:<20.8f} {sell_down:<20.8f} {tags_str}')
+            print(f'{code:<15} {future:<20.8f} {current:<15.3f} {percentage:<15.8f} {rank:<5} {sell_up:<20.8f} {sell_down:<20.8f} {tags_str}')
         print()
         
         print('Trained and analyzed all coins', datetime.datetime.now())
