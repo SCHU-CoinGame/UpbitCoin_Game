@@ -47,14 +47,16 @@ model.add(Dense(1))
 
 
 def get_data(coin):
+    
+    print('Loading data of new coin -', coin)
 
     df = pyupbit.get_ohlcv(coin, interval=interval, to=datetime.datetime.now(), count=cfg.trim_rows)
     df.reset_index().rename(columns={'index':'timestamp'})
     df['timestamp'] = pd.to_datetime(df['timestamp'])
 
-    print(f'{coin} data loaded')
-    df.to_csv(f'../../data/from_pyupbit/{coin}.csv')
-
+    print(f'New {coin} data loaded')
+    df.to_csv(f'../../data/from_pyupbit/{coin}.csv', index=False)
+    
 
 def train(coin):
     get_data(coin)

@@ -17,14 +17,19 @@ from tensorflow.keras.callbacks import EarlyStopping
 from sklearn.preprocessing import MinMaxScaler
 
 import config
+from ai_hint.all_features_w_DA import update_coins
 
 warnings.filterwarnings('ignore')
 
 
 cfg = config.Config()
 
+steady_coins = cfg.steady_coins
 coins = cfg.coins
-coin_dict = {coin: i for i, coin in enumerate(coins)}
+coin_dict = {}
+
+tickers = pyupbit.get_tickers(fiat='KRW')
+tickers = [ticker for ticker in tickers if not ticker in steady_coins]
 
 model_dir = cfg.model_dir
 data_dir = cfg.data_dir
@@ -40,6 +45,9 @@ model_paths = {}
 scaler_paths = {}
 
 response = []
+
+stop_train = 0
+stop_inference = 0
 
 
 def inverse_transform_predictions(preds, scaler, label_idx=-1):
@@ -61,21 +69,6 @@ def get_last_row(coin, count=10):
     total_rows = sum(1 for _ in open(filepath))
     last_row = pd.read_csv(filepath, skiprows=range(1, total_rows-count))
     return last_row
-
-for coin in coins:
-    model_paths[coin] = os.path.join(model_dir, f'lstm_{coin}.h5')
-    models.append(tf.keras.models.load_model(model_paths[coin]))
-    
-    scaler_paths[coin] = os.path.join(model_dir, f'{coin}_scaler.pkl')
-    scalers.append(joblib.load(scaler_paths[coin]))
-    
-    data_paths[coin] = os.path.join(data_dir, f'{coin}.csv')
-        
-    last_times[coin] = get_last_date(coin)
-    
-    response.append({'code':coin, 'rank':-1, 'prediction_timestamp':'', 'percentage':0.0, 'future':0.0, 'current':0.0,
-                     'most_volatile':False, 'least_volatile':False, 'largest_drop':False, 'largest_rise':False,
-                     'largest_spike':False, 'fastest_growth':False, 'fastest_decline':False, 'sell_up': 0.0, 'sell_down': 0.0})
     
     
 # TODO: get data from DB
@@ -87,7 +80,40 @@ def get_percentage(future, current):
     return ((future - current) / current) * 100
 
 
+def prepare():
+    global last_times, models, scalers, data_paths, model_paths, scaler_paths, response, coin_dict
+    
+    last_times = {}
+
+    models = []
+    scalers = []
+    data_paths = {}
+    model_paths = {}
+    scaler_paths = {}
+
+    response = []
+    coin_dict = {}
+
+    for i, coin in enumerate(coins):
+        if os.path.exists(os.path.join(model_dir, f'lstm_{coin}.h5')):
+            model_paths[coin] = os.path.join(model_dir, f'lstm_{coin}.h5')
+            models.append(tf.keras.models.load_model(model_paths[coin]))
+            
+            scaler_paths[coin] = os.path.join(model_dir, f'{coin}_scaler.pkl')
+            scalers.append(joblib.load(scaler_paths[coin]))
+        
+        data_paths[coin] = os.path.join(data_dir, f'{coin}.csv')
+            
+        last_times[coin] = get_last_date(coin)
+        
+        response.append({'code':coin, 'rank':-1, 'prediction_timestamp':'', 'percentage':0.0, 'future':0.0, 'current':0.0,
+                        'most_volatile':False, 'least_volatile':False, 'largest_drop':False, 'largest_rise':False,
+                        'largest_spike':False, 'fastest_growth':False, 'fastest_decline':False, 'sell_up': 0.0, 'sell_down': 0.0})
+        coin_dict[coin] = i
+
+
 def before_train():
+    prepare()
     start_time = datetime.datetime.now()
     print('Before train', start_time)
     now = datetime.datetime.now()
@@ -170,6 +196,10 @@ def analyze_and_predict():
     percentages = {}
 
     while True:
+        if stop_inference:
+            break
+        
+        
         for i, coin in enumerate(coins):
             
             # TODO: analyze
@@ -264,6 +294,8 @@ def analyze_and_predict():
 def train_thread():
     while True:
         Thread(target=train, daemon=True).start()
+        if stop_train:
+            break
         time.sleep(cfg.train_seconds)
 
 
@@ -324,64 +356,124 @@ def train():
     print('Trained all coins', 'Took', datetime.datetime.now() - train_start_time)
     
         
-def retrain():
-    model = Sequential()
-    model.add(LSTM(50, return_sequences=True, input_shape=(timestep, len(cfg.used_cols))))
-    model.add(LSTM(50, return_sequences=False))
-    model.add(Dense(25))
-    model.add(Dense(1))
+# def retrain():
+#     model = Sequential()
+#     model.add(LSTM(50, return_sequences=True, input_shape=(timestep, len(cfg.used_cols))))
+#     model.add(LSTM(50, return_sequences=False))
+#     model.add(Dense(25))
+#     model.add(Dense(1))
     
-    for i, coin in enumerate(coins):
-        df = pd.read_csv(data_paths[coin])
-        df = df.head(cfg.trim_rows)
-        df.to_csv(data_paths[coin], index=False)
+#     for i, coin in enumerate(coins):
+#         df = pd.read_csv(data_paths[coin])
+#         df = df.head(cfg.trim_rows)
+#         df.to_csv(data_paths[coin], index=False)
         
-        df = pd.read_csv(data_paths[coin])
+#         df = pd.read_csv(data_paths[coin])
         
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
+#         df['timestamp'] = pd.to_datetime(df['timestamp'])
     
-        df['close_change'] = df['close'].diff().fillna(0)
+#         df['close_change'] = df['close'].diff().fillna(0)
         
-        df.set_index('timestamp', inplace=True)
+#         df.set_index('timestamp', inplace=True)
         
-        df['percentage_change'] = get_percentage(df['close'], df['close'].shift(1)).fillna(0)
-        df['volatility'] = df['percentage_change'].rolling(window=5).std()
-        df['avg_change_rate'] = df['percentage_change'].rolling(window=5).mean()
+#         df['percentage_change'] = get_percentage(df['close'], df['close'].shift(1)).fillna(0)
+#         df['volatility'] = df['percentage_change'].rolling(window=5).std()
+#         df['avg_change_rate'] = df['percentage_change'].rolling(window=5).mean()
         
-        df = df[cfg.used_cols].fillna(0)
+#         df = df[cfg.used_cols].fillna(0)
         
-        scaler = MinMaxScaler(feature_range=(0, 1))
+#         scaler = MinMaxScaler(feature_range=(0, 1))
         
-        scaled_data = scaler.fit_transform(df)
-        joblib.dump(scaler, scaler_paths[coin])
+#         scaled_data = scaler.fit_transform(df)
+#         joblib.dump(scaler, scaler_paths[coin])
         
-        X = []
-        y = []
-        for i in range(len(scaled_data) - timestep):
-            X.append(scaled_data[i:(i + timestep), :])
-            y.append(scaled_data[i + timestep, -1])
+#         X = []
+#         y = []
+#         for i in range(len(scaled_data) - timestep):
+#             X.append(scaled_data[i:(i + timestep), :])
+#             y.append(scaled_data[i + timestep, -1])
         
-        X, y = np.array(X), np.array(y)
+#         X, y = np.array(X), np.array(y)
         
-        model.compile(optimizer='adam', loss='mean_squared_error')
-        early_stop = EarlyStopping(monitor='loss', patience=10)
+#         model.compile(optimizer='adam', loss='mean_squared_error')
+#         early_stop = EarlyStopping(monitor='loss', patience=10)
         
-        model.fit(X, y, epochs=20, batch_size=32, callbacks=[early_stop], verbose=0)
-        model.save(model_paths[coin])
+#         model.fit(X, y, epochs=20, batch_size=32, callbacks=[early_stop], verbose=0)
+#         model.save(model_paths[coin])
         
-    print('Retrained all coins', datetime.datetime.now())
+#     print('Retrained all coins', datetime.datetime.now())
 
     
-def trim_thread():
+# def trim_thread():
+#     while True:
+#         retrain()
+#         time.sleep(config.Config().trim_seconds)
+
+
+def update_coins_thread():
     while True:
-        retrain()
-        time.sleep(config.Config().trim_seconds)
+        time.sleep(cfg.update_seconds)
+        
+        # if datetime.datetime.now().hour != 4:
+        #     continue
+        
+        print('Coin update started', datetime.datetime.now())
+        
+        global stop_train, stop_inference, train_th, predict_th
+        stop_train = 1
+        train_th.join()
+        
+        volumes = {}
+        
+        for ticker in tickers:
+            
+            querystring = {"markets": ticker}
+            volume = requests.request("GET", cfg.upbit, params=querystring)
+            volume = volume.json()
 
-    
-if __name__ == '__main__':
-    before_train()
-    Thread(target=train_thread).start()
-    Thread(target=analyze_and_predict).start()
-    time.sleep(config.Config().trim_seconds)
-    Thread(target=trim_thread).start()
-    
+            try:
+                volume = float(volume[0]["acc_trade_price_24h"])
+            except:
+                continue
+            
+            if volume >= cfg.min_volume:
+                volumes[ticker] = volume
+                
+        volumes = dict(sorted(volumes.items(), key=lambda x: x[1], reverse=False))
+        volumes = list(volumes.keys())[:9 - len(steady_coins)]
+        
+        for coin in volumes:
+            update_coins.train(coin)
+        
+        updated_coins = steady_coins + list(volumes)
+        
+        global coins
+        coins = updated_coins
+        
+        print('New coin list', coins)
+        
+        stop_inference = 1
+
+        train_th = Thread(target=train_thread)
+        stop_train = 0
+        train_th.start()
+        
+        predict_th.join()
+        predict_th = Thread(target=analyze_and_predict)
+        stop_inference = 0
+        predict_th.start()
+        
+        print('Coin update finished', datetime.datetime.now())
+
+
+Thread(target=update_coins_thread).start()
+before_train()
+
+train_th = Thread(target=train_thread)
+train_th.start()
+
+predict_th = Thread(target=analyze_and_predict)
+predict_th.start()
+
+# time.sleep(config.Config().trim_seconds)
+# Thread(target=trim_thread).start()
