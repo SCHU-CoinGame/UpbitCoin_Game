@@ -416,55 +416,70 @@ def update_coins_thread():
         
         # if datetime.datetime.now().hour != 4:
         #     continue
-        
-        print('Coin update started', datetime.datetime.now())
-        
-        global stop_train, stop_inference, train_th, predict_th
-        stop_train = 1
-        train_th.join()
-        
-        volumes = {}
-        
-        for ticker in tickers:
+        try:
+            print('Coin update started', datetime.datetime.now())
             
-            querystring = {"markets": ticker}
-            volume = requests.request("GET", cfg.upbit, params=querystring)
-            volume = volume.json()
-
-            try:
-                volume = float(volume[0]["acc_trade_price_24h"])
-            except:
-                continue
+            global stop_train, stop_inference, train_th, predict_th
+            stop_train = 1
+            train_th.join()
             
-            if volume >= cfg.min_volume:
-                volumes[ticker] = volume
-                
-        volumes = dict(sorted(volumes.items(), key=lambda x: x[1], reverse=False))
-        volumes = list(volumes.keys())[:9 - len(steady_coins)]
-        
-        for coin in volumes:
-            update_coins.train(coin)
-        
-        updated_coins = steady_coins + list(volumes)
-        
-        global coins
-        coins = updated_coins
-        
-        print('New coin list', coins)
-        
-        stop_inference = 1
+            volumes = {}
+            
+            for ticker in tickers:
+                try:
+                    querystring = {"markets": ticker}
+                    volume = requests.request("GET", cfg.upbit, params=querystring)
+                    volume = volume.json()
+                    volume = float(volume[0]['acc_trade_price_24h'])
 
-        train_th = Thread(target=train_thread)
-        stop_train = 0
-        train_th.start()
-        
-        predict_th.join()
-        predict_th = Thread(target=analyze_and_predict)
-        stop_inference = 0
-        predict_th.start()
-        
-        print('Coin update finished', datetime.datetime.now())
+                    if volume >= cfg.min_volume:
+                        volumes[ticker] = volume
+                except Exception as e:
+                    print(f"Error processing ticker {ticker}: {e}")
+                    continue
+                    
+            volumes = dict(sorted(volumes.items(), key=lambda x: x[1], reverse=False))
+            volumes = list(volumes.keys())[:9 - len(steady_coins)]
+            
+            for coin in volumes:
+                try:
+                    update_coins.train(coin)
+                except Exception as e:
+                    print(f"Error updating coin {coin}: {e}")
+                    continue
+            
+            updated_coins = steady_coins + list(volumes)
+            
+            global coins
+            coins = updated_coins
+            
+            print('New coin list', coins)
+            
+            stop_inference = 1
+            time.sleep(1)
 
+            train_th = Thread(target=train_thread)
+            stop_train = 0
+            train_th.start()
+            
+            predict_th.join(timeout=30)
+            predict_th = Thread(target=analyze_and_predict)
+            stop_inference = 0
+            predict_th.start()
+            
+            print('Coin update finished', datetime.datetime.now())
+        except Exception as e:
+            print(f"Error in update_coins_thread: {e}")
+            
+            stop_train = 0
+            stop_inference = 0
+            
+            if not train_th.is_alive():
+                train_th = Thread(target=train_thread)
+                train_th.start()
+            if not predict_th.is_alive():
+                predict_th = Thread(target=analyze_and_predict)
+                predict_th.start()
 
 Thread(target=update_coins_thread).start()
 before_train()
