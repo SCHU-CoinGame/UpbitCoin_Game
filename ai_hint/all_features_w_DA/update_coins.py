@@ -55,13 +55,13 @@ def get_data(coin):
     df['timestamp'] = pd.to_datetime(df['timestamp'])
 
     print(f'New {coin} data loaded')
-    df.to_csv(f'../../data/from_pyupbit/{coin}.csv', index=False)
+    df.to_csv(f'../../data/from_pyupbit/new/{coin}.csv', index=False)
     
 
 def train(coin):
     get_data(coin)
     
-    df = pd.read_csv(f'../../data/from_pyupbit/{coin}.csv')
+    df = pd.read_csv(f'../../data/from_pyupbit/new/{coin}.csv')
     
     scaler = MinMaxScaler(feature_range=(0, 1))
     

@@ -49,6 +49,9 @@ response = []
 stop_train = 0
 stop_inference = 0
 
+second_train = 0
+second_inference = 0
+
 
 def inverse_transform_predictions(preds, scaler, label_idx=-1):
     dummy = np.zeros((len(preds), scaler.n_features_in_))
@@ -101,6 +104,8 @@ def prepare():
             
             scaler_paths[coin] = os.path.join(model_dir, f'{coin}_scaler.pkl')
             scalers.append(joblib.load(scaler_paths[coin]))
+        else:
+            print('Model not found for', coin)
         
         data_paths[coin] = os.path.join(data_dir, f'{coin}.csv')
             
@@ -347,7 +352,7 @@ def train():
         X, y = np.array(X), np.array(y)
         if len(X) == 0:
             continue
-        print(X.shape, y.shape)
+        # print(X.shape, y.shape)
         
         models[i].fit(X, y, epochs=20, batch_size=1, verbose=0)
         models[i].save(model_paths[coin])
@@ -411,6 +416,7 @@ def train():
 
 
 def update_coins_thread():
+    global stop_train, stop_inference, train_th, predict_th
     while True:
         time.sleep(cfg.update_seconds)
         
@@ -419,11 +425,11 @@ def update_coins_thread():
         try:
             print('Coin update started', datetime.datetime.now())
             
-            global stop_train, stop_inference, train_th, predict_th
             stop_train = 1
             train_th.join()
             
             volumes = {}
+            print('Getting volumes')
             
             for ticker in tickers:
                 try:
@@ -458,7 +464,7 @@ def update_coins_thread():
             stop_inference = 1
             time.sleep(1)
 
-            train_th = Thread(target=train_thread)
+            train_th = Thread(target=train_thread) 
             stop_train = 0
             train_th.start()
             
@@ -480,6 +486,7 @@ def update_coins_thread():
             if not predict_th.is_alive():
                 predict_th = Thread(target=analyze_and_predict)
                 predict_th.start()
+
 
 Thread(target=update_coins_thread).start()
 before_train()
