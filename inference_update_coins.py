@@ -98,14 +98,20 @@ def prepare():
     coin_dict = {}
 
     for i, coin in enumerate(coins):
-        if os.path.exists(os.path.join(model_dir, f'lstm_{coin}.h5')):
-            model_paths[coin] = os.path.join(model_dir, f'lstm_{coin}.h5')
-            models.append(tf.keras.models.load_model(model_paths[coin]))
+        # if os.path.exists(os.path.join(model_dir, f'lstm_{coin}.h5')):
+        #     model_paths[coin] = os.path.join(model_dir, f'lstm_{coin}.h5')
+        #     models.append(tf.keras.models.load_model(model_paths[coin]))
             
-            scaler_paths[coin] = os.path.join(model_dir, f'{coin}_scaler.pkl')
-            scalers.append(joblib.load(scaler_paths[coin]))
-        else:
-            print('Model not found for', coin)
+        #     scaler_paths[coin] = os.path.join(model_dir, f'{coin}_scaler.pkl')
+        #     scalers.append(joblib.load(scaler_paths[coin]))
+        # else:
+        #     print('Model not found for', coin)
+        
+        model_paths[coin] = os.path.join(model_dir, f'lstm_{coin}.h5')
+        models.append(tf.keras.models.load_model(model_paths[coin]))
+        
+        scaler_paths[coin] = os.path.join(model_dir, f'{coin}_scaler.pkl')
+        scalers.append(joblib.load(scaler_paths[coin]))
         
         data_paths[coin] = os.path.join(data_dir, f'{coin}.csv')
             
@@ -119,48 +125,48 @@ def prepare():
 
 def before_train():
     prepare()
-    start_time = datetime.datetime.now()
-    print('Before train', start_time)
-    now = datetime.datetime.now()
-    current_time = now.strftime('%Y-%m-%d %H:%M:00')
-    now = datetime.datetime.strptime(current_time, '%Y-%m-%d %H:%M:%S')
-    while any(last_times[coin][:-2]+'00' < current_time for coin in last_times.keys()):
-        for i, coin in enumerate(coins):
-            if current_time > last_times[coin]:
-                diff_min = now - datetime.datetime.strptime(last_times[coin], '%Y-%m-%d %H:%M:%S')
-                diff_min = diff_min.total_seconds() // 60
-                df = get_data(coin=coin, count=int(diff_min), to=current_time).reset_index()
-                df.to_csv(data_paths[coin], mode='a', header=not os.path.exists(data_paths[coin]), index=False)
+    # start_time = datetime.datetime.now()
+    # print('Before train', start_time)
+    # now = datetime.datetime.now()
+    # current_time = now.strftime('%Y-%m-%d %H:%M:00')
+    # now = datetime.datetime.strptime(current_time, '%Y-%m-%d %H:%M:%S')
+    # while any(last_times[coin][:-2]+'00' < current_time for coin in last_times.keys()):
+    #     for i, coin in enumerate(coins):
+    #         if current_time > last_times[coin]:
+    #             diff_min = now - datetime.datetime.strptime(last_times[coin], '%Y-%m-%d %H:%M:%S')
+    #             diff_min = diff_min.total_seconds() // 60
+    #             df = get_data(coin=coin, count=int(diff_min), to=current_time).reset_index()
+    #             df.to_csv(data_paths[coin], mode='a', header=not os.path.exists(data_paths[coin]), index=False)
                 
-                df['close_change'] = df['close'].diff().fillna(get_last_row(coin, 1)['close'] - df.iloc[-1]['close'])
+    #             df['close_change'] = df['close'].diff().fillna(get_last_row(coin, 1)['close'] - df.iloc[-1]['close'])
                 
-                # fewer
-                df['percentage_change'] = get_percentage(df['close'], df['close'].shift(1)).fillna(0)
-                df['volatility'] = df['percentage_change'].rolling(window=5).std()
-                df['avg_change_rate'] = df['percentage_change'].rolling(window=5).mean()
+    #             # fewer
+    #             df['percentage_change'] = get_percentage(df['close'], df['close'].shift(1)).fillna(0)
+    #             df['volatility'] = df['percentage_change'].rolling(window=5).std()
+    #             df['avg_change_rate'] = df['percentage_change'].rolling(window=5).mean()
                 
-                X = df[cfg.used_cols].fillna(0)
-                scalers[i].partial_fit(X)
-                joblib.dump(scalers[i], scaler_paths[coin])
-                scaled_data = scalers[i].transform(X)
+    #             X = df[cfg.used_cols].fillna(0)
+    #             scalers[i].partial_fit(X)
+    #             joblib.dump(scalers[i], scaler_paths[coin])
+    #             scaled_data = scalers[i].transform(X)
                 
-                X = []
-                y = []
-                for j in range(len(scaled_data) - timestep):
-                    X.append(scaled_data[j:(j + timestep), :])
-                    y.append(scaled_data[j + timestep, -1])
-                # print(i, coin, len(X), len(y))
+    #             X = []
+    #             y = []
+    #             for j in range(len(scaled_data) - timestep):
+    #                 X.append(scaled_data[j:(j + timestep), :])
+    #                 y.append(scaled_data[j + timestep, -1])
+    #             # print(i, coin, len(X), len(y))
                     
-                if len(X) >= 1 and len(y) >= 1:
-                    X, y = np.array(X), np.array(y)
-                    models[i].fit(X, y, epochs=20, batch_size=1, verbose=0)
-                    models[i].save(model_paths[coin])
+    #             if len(X) >= 1 and len(y) >= 1:
+    #                 X, y = np.array(X), np.array(y)
+    #                 models[i].fit(X, y, epochs=20, batch_size=1, verbose=0)
+    #                 models[i].save(model_paths[coin])
                 
-                last_times[coin] = current_time
-                now = datetime.datetime.now()
-                current_time = str(now).split('.')[0][:-2] + '00'
-            print(f'{coin} loop', datetime.datetime.now() - start_time)
-            start_time = datetime.datetime.now()
+    #             last_times[coin] = current_time
+    #             now = datetime.datetime.now()
+    #             current_time = str(now).split('.')[0][:-2] + '00'
+    #         print(f'{coin} loop', datetime.datetime.now() - start_time)
+    #         start_time = datetime.datetime.now()
             
             
 def on_message(msg):
@@ -345,9 +351,9 @@ def train():
         
         X, y = [], []
         
-        for i in range(len(scaled_data) - timestep):
-            X.append(scaled_data[i:i+timestep, :])
-            y.append(scaled_data[i + timestep, -1])
+        for idx in range(len(scaled_data) - timestep):
+            X.append(scaled_data[idx:idx+timestep, :])
+            y.append(scaled_data[idx + timestep, -1])
         
         X, y = np.array(X), np.array(y)
         if len(X) == 0:
@@ -359,60 +365,33 @@ def train():
         
         print(f'{coin} trained', last_times[coin])
     print('Trained all coins', 'Took', datetime.datetime.now() - train_start_time)
-    
-        
-# def retrain():
-#     model = Sequential()
-#     model.add(LSTM(50, return_sequences=True, input_shape=(timestep, len(cfg.used_cols))))
-#     model.add(LSTM(50, return_sequences=False))
-#     model.add(Dense(25))
-#     model.add(Dense(1))
-    
-#     for i, coin in enumerate(coins):
-#         df = pd.read_csv(data_paths[coin])
-#         df = df.head(cfg.trim_rows)
-#         df.to_csv(data_paths[coin], index=False)
-        
-#         df = pd.read_csv(data_paths[coin])
-        
-#         df['timestamp'] = pd.to_datetime(df['timestamp'])
-    
-#         df['close_change'] = df['close'].diff().fillna(0)
-        
-#         df.set_index('timestamp', inplace=True)
-        
-#         df['percentage_change'] = get_percentage(df['close'], df['close'].shift(1)).fillna(0)
-#         df['volatility'] = df['percentage_change'].rolling(window=5).std()
-#         df['avg_change_rate'] = df['percentage_change'].rolling(window=5).mean()
-        
-#         df = df[cfg.used_cols].fillna(0)
-        
-#         scaler = MinMaxScaler(feature_range=(0, 1))
-        
-#         scaled_data = scaler.fit_transform(df)
-#         joblib.dump(scaler, scaler_paths[coin])
-        
-#         X = []
-#         y = []
-#         for i in range(len(scaled_data) - timestep):
-#             X.append(scaled_data[i:(i + timestep), :])
-#             y.append(scaled_data[i + timestep, -1])
-        
-#         X, y = np.array(X), np.array(y)
-        
-#         model.compile(optimizer='adam', loss='mean_squared_error')
-#         early_stop = EarlyStopping(monitor='loss', patience=10)
-        
-#         model.fit(X, y, epochs=20, batch_size=32, callbacks=[early_stop], verbose=0)
-#         model.save(model_paths[coin])
-        
-#     print('Retrained all coins', datetime.datetime.now())
 
+
+def get_volumes():
+    volumes = {}
+    all_coins = tickers
+    while True:
+        failed = []
+        for ticker in all_coins:
+            try:
+                querystring = {"markets": ticker}
+                volume = requests.request("GET", cfg.upbit, params=querystring)
+                volume = volume.json()
+                volume = float(volume[0]['acc_trade_price_24h'])
+                
+                if volume >= cfg.min_volume:
+                    volumes[ticker] = volume
+            except Exception as e:
+                failed.append(ticker)
+                continue
+        if len(failed) == 0:
+            break
+        all_coins = failed
+            
+    volumes = dict(sorted(volumes.items(), key=lambda x: x[1], reverse=False))
+    volumes = list(volumes.keys())[:9 - len(steady_coins)]
     
-# def trim_thread():
-#     while True:
-#         retrain()
-#         time.sleep(config.Config().trim_seconds)
+    return volumes
 
 
 def update_coins_thread():
@@ -428,22 +407,7 @@ def update_coins_thread():
             stop_train = 1
             train_th.join()
             
-            volumes = {}
-            print('Getting volumes')
-            
-            for ticker in tickers:
-                try:
-                    querystring = {"markets": ticker}
-                    volume = requests.request("GET", cfg.upbit, params=querystring)
-                    volume = volume.json()
-                    volume = float(volume[0]['acc_trade_price_24h'])
-
-                    if volume >= cfg.min_volume:
-                        volumes[ticker] = volume
-                except Exception as e:
-                    print(f"Error processing ticker {ticker}: {e}")
-                    continue
-                    
+            volumes = get_volumes()
             volumes = dict(sorted(volumes.items(), key=lambda x: x[1], reverse=False))
             volumes = list(volumes.keys())[:9 - len(steady_coins)]
             
@@ -496,6 +460,3 @@ train_th.start()
 
 predict_th = Thread(target=analyze_and_predict)
 predict_th.start()
-
-# time.sleep(config.Config().trim_seconds)
-# Thread(target=trim_thread).start()
